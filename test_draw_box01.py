@@ -1,6 +1,7 @@
 import cv2
 from ultralytics import YOLO
 import time  # FPS 측정을 위한 모듈 추가
+import torch # GPS, MPS 가속 지원 확인용
 
 """
 YOLOv8 Distance Estimation + Correction + FPS 표시
@@ -13,6 +14,16 @@ YOLOv8 Distance Estimation + Correction + FPS 표시
 # 모델 로딩 (경로는 필요에 따라 수정)
 model = YOLO('./models/weights14/best.pt')
 #model = YOLO('/Users/tory/Tory/02.Study/01.1team/models/yolov8n.pt')
+
+# ─── 디바이스 자동 선택 ───
+if torch.cuda.is_available():
+    device = 'cuda'
+elif torch.backends.mps.is_available():
+    device = 'mps'
+else:
+    device = 'cpu'
+print(f"✅ 사용 디바이스: {device}")
+model.to(device)
 
 # 테스트 영상 경로
 #video_path = '/Users/tory/Tory/02.Study/movies/output_part.webm'
