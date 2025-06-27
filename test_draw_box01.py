@@ -16,18 +16,25 @@ model = YOLO('./models/weights14/best.pt')
 
 # 테스트 영상 경로
 #video_path = '/Users/tory/Tory/02.Study/movies/output_part.webm'
-video_path = '/Users/tory/Tory/02.Study/movies/test_movie_007.mp4'
+video_path = '/Users/tory/Tory/02.Study/movies/test_movie_006.mp4'
 cap = cv2.VideoCapture(video_path)
 
 # 클래스별 실제 크기 (height, width) in meters
 object_sizes = {
     'person': (1.7, 0.5),
     'car': (1.5, 1.8),
-    'truck': (3.5, 2.5),
+    'truck': (2.8, 2.3),
     'bus': (3.2, 2.5),
     'bicycle': (1.2, 0.5),
     'motorcycle': (1.4, 0.6),
     'dog': (0.5, 0.3),
+    'vehicle': (1.5, 1.8),      # 우리가 학습시킨 모델의 클리스 추가함.
+    'big vehicle': (2.5, 2.2),
+    'bike': (1.2, 0.5),
+    'human': (1.7, 0.5),
+    'animal': (0.5, 0.6),
+    'obstacle': (1.0, 1.0),
+    'background': (1.0, 1.0),
 }
 
 reference_width = 640     # ref px
@@ -44,7 +51,9 @@ H, W = frame.shape[:2]
 focal_length = int(reference_focal * (W / reference_width))
 cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
 
-a, b = 0.75, -0.5   # 보정 파라미터
+# 보정 파라미터
+#a, b = 0.75, -0.5      # gpt가 알려준 값
+a, b = 0.30, -0.15      # 본인이 수정한값 ( 기본값에 비해 인식률이 좋은것 같다. )
 
 # ─── FPS 변수 ───
 fps = 0.0
