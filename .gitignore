@@ -1,5 +1,17 @@
 # 운영체제 자동 생성 파일
+__pycache__
 .DS_Store
+.vscode
+tmp
+.ropeproject
+.pyc
+
+*.out
+*.out.*
+
+*.onnx
+onnxruntime/
+
 Thumbs.db
 *.log
 *.temp
