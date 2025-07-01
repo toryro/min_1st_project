@@ -17,8 +17,8 @@
 //const std::string MODEL_PATH = "/Users/tory/Tory/02.Study/01.1team/min_1st_project/models/yolov8n.onnx"; // 사용할 ONNX 모델 경로
 const std::string MODEL_PATH = "/Users/tory/Tory/02.Study/01.1team/min_1st_project/models/weights14/best.onnx"; // 사용할 ONNX 모델 경로
 
-const float CONFIDENCE_THRESHOLD = 0.3;      // 최소 신뢰도
-const float NMS_THRESHOLD = 0.25;             // NMS 임계값
+const float CONFIDENCE_THRESHOLD = 0.15;        // 최소 신뢰도 기본 0.3
+const float NMS_THRESHOLD = 0.25;               // NMS 임계값 기본 0.25
 
 /**
  * @brief ONNX 추론을 담당하는 헬퍼 클래스

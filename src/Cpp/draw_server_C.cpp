@@ -1,153 +1,133 @@
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <unistd.h>
-
-#include <opencv2/opencv.hpp>
-#include <onnxruntime_cxx_api.h>
-
-#include <algorithm>
 #include <iostream>
-#include <string>
 #include <vector>
+#include <string>
+#include <cstring>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <onnxruntime_cxx_api.h>
+#include <opencv2/opencv.hpp>
 
-constexpr int PORT = 9888;
-constexpr int INPUT_WH = 640;          // YOLOv8n.onnx 입력 크기
-constexpr float CONF_THR = 0.4f;
-constexpr float NMS_IOU = 0.5f;
+#define PORT 9888
+#define BUFFER_SIZE 65536
 
-// ── 유틸: 소켓에서 정확히 n바이트 읽기 ──────────────────────────────
-bool recv_all(int fd, void* buf, size_t len) {
-    uint8_t* p = static_cast<uint8_t*>(buf);
-    size_t r = 0;
-    while (r < len) {
-        ssize_t n = recv(fd, p + r, len - r, 0);
-        if (n <= 0) return false;  // 연결 종료·에러
-        r += n;
+const int INPUT_W = 640;
+const int INPUT_H = 640;
+Ort::Env env(ORT_LOGGING_LEVEL_WARNING, "onnx_server");
+Ort::Session* session = nullptr;
+Ort::SessionOptions session_options;
+
+std::vector<const char*> input_node_names;
+std::vector<const char*> output_node_names;
+
+void initialize_model(const std::string& model_path) {
+    session_options.SetIntraOpNumThreads(1);
+    session_options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+    session = new Ort::Session(env, model_path.c_str(), session_options);
+
+    // 입력/출력 노드 이름 얻기
+    std::vector<std::string> input_names = session->GetInputNames();
+    for (const auto& name : input_names)
+        input_node_names.push_back(name.c_str());
+
+    std::vector<std::string> output_names = session->GetOutputNames();
+    for (const auto& name : output_names)
+        output_node_names.push_back(name.c_str());
+}
+
+std::vector<float> run_onnx_inference(const cv::Mat& input_img) {
+    cv::Mat resized;
+    cv::resize(input_img, resized, cv::Size(INPUT_W, INPUT_H));
+    cv::cvtColor(resized, resized, cv::COLOR_BGR2RGB);
+    resized.convertTo(resized, CV_32F, 1.0 / 255.0);
+
+    // [1, 3, H, W]로 텐서 준비
+    std::vector<float> input_tensor_values(1 * 3 * INPUT_H * INPUT_W);
+    size_t idx = 0;
+    for (int c = 0; c < 3; ++c) {
+        for (int y = 0; y < INPUT_H; ++y) {
+            for (int x = 0; x < INPUT_W; ++x) {
+                input_tensor_values[idx++] = resized.at<cv::Vec3f>(y, x)[c];
+            }
+        }
     }
-    return true;
+
+    std::vector<int64_t> input_shape = {1, 3, INPUT_H, INPUT_W};
+    Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+    Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
+        memory_info, input_tensor_values.data(), input_tensor_values.size(),
+        input_shape.data(), input_shape.size());
+
+    auto output_tensors = session->Run(Ort::RunOptions{nullptr},
+        input_node_names.data(), &input_tensor, 1,
+        output_node_names.data(), 1);
+
+    float* output = output_tensors[0].GetTensorMutableData<float>();
+    size_t num_outputs = output_tensors[0].GetTensorTypeAndShapeInfo().GetElementCount();
+
+    // [x1, y1, x2, y2, conf, cls] 기준 → 첫 번째 바운딩박스만 추출
+    std::vector<float> bbox(4, 0.0f);
+    if (num_outputs >= 6)
+        std::copy(output, output + 4, bbox.begin());
+
+    return bbox;
 }
 
-// ── NMS (간단한 IoU 기반) ──────────────────────────────────────────
-struct Detection {
-    float x1, y1, x2, y2, conf;
-    int   cls;
-};
-float iou(const Detection& a, const Detection& b) {
-    const float xx1 = std::max(a.x1, b.x1), yy1 = std::max(a.y1, b.y1);
-    const float xx2 = std::min(a.x2, b.x2), yy2 = std::min(a.y2, b.y2);
-    const float w = std::max(0.f, xx2 - xx1), h = std::max(0.f, yy2 - yy1);
-    const float inter = w * h;
-    const float areaA = (a.x2 - a.x1) * (a.y2 - a.y1);
-    const float areaB = (b.x2 - b.x1) * (b.y2 - b.y1);
-    return inter / (areaA + areaB - inter + 1e-6f);
-}
-std::vector<Detection> nms(std::vector<Detection>& dets) {
-    std::sort(dets.begin(), dets.end(),
-              [](auto& a, auto& b) { return a.conf > b.conf; });
-    std::vector<Detection> keep;
-    std::vector<char> removed(dets.size(), 0);
-    for (size_t i = 0; i < dets.size(); ++i) {
-        if (removed[i]) continue;
-        keep.push_back(dets[i]);
-        for (size_t j = i + 1; j < dets.size(); ++j)
-            if (!removed[j] && iou(dets[i], dets[j]) > NMS_IOU) removed[j] = 1;
+void handle_client(int client_sock) {
+    char buffer[BUFFER_SIZE];
+    int bytes_received = recv(client_sock, buffer, BUFFER_SIZE, 0);
+    if (bytes_received <= 0) {
+        std::cerr << "❌ 클라이언트로부터 데이터를 받지 못했습니다.\n";
+        return;
     }
-    return keep;
+
+    std::vector<uchar> img_data(buffer, buffer + bytes_received);
+    cv::Mat img = cv::imdecode(img_data, cv::IMREAD_COLOR);
+    if (img.empty()) {
+        std::cerr << "❌ 이미지 디코딩 실패\n";
+        return;
+    }
+
+    std::vector<float> bbox = run_onnx_inference(img);
+    send(client_sock, bbox.data(), bbox.size() * sizeof(float), 0);
 }
 
-// ── 메인 ───────────────────────────────────────────────────────────
 int main() {
-    // 1) ONNX Runtime 초기화
-    Ort::Env env(ORT_LOGGING_LEVEL_WARNING, "server");
-    Ort::SessionOptions opt;
-    opt.SetIntraOpNumThreads(4);
-    Ort::Session session(env, "yolov8n.onnx", opt);
-    Ort::AllocatorWithDefaultOptions allocator;
-    const char* input_name  = session.GetInputName(0, allocator);
-    const char* output_name = session.GetOutputName(0, allocator);
+    initialize_model("/Users/tory/Tory/02.Study/01.1team/min_1st_project/models/weights14/best.onnx");  // 모델 파일 경로
 
-    // 2) 소켓 오픈
-    int sfd = socket(AF_INET, SOCK_STREAM, 0);
-    sockaddr_in addr{};
-    addr.sin_family = AF_INET;
-    addr.sin_port   = htons(PORT);
-    addr.sin_addr.s_addr = INADDR_ANY;
-    bind(sfd, (sockaddr*)&addr, sizeof(addr));
-    listen(sfd, 1);
-    std::cout << "🟢 Listening on port " << PORT << "\n";
+    int server_fd, client_sock;
+    struct sockaddr_in address;
+    socklen_t addrlen = sizeof(address);
 
-    int cfd = accept(sfd, nullptr, nullptr);
-    std::cout << "✅ Client connected\n";
+    server_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (server_fd < 0) {
+        perror("❌ 소켓 생성 실패");
+        return -1;
+    }
+
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = INADDR_ANY;
+    address.sin_port = htons(PORT);
+
+    if (bind(server_fd, (struct sockaddr*)&address, sizeof(address)) < 0) {
+        perror("❌ 바인딩 실패");
+        return -1;
+    }
+
+    listen(server_fd, 3);
+    std::cout << "🚀 서버가 대기 중입니다...\n";
 
     while (true) {
-        // 3) 프레임 길이 수신
-        uint32_t len_net;
-        if (!recv_all(cfd, &len_net, 4)) break;
-        uint32_t len = ntohl(len_net);
-        std::vector<uint8_t> jpeg(len);
-        if (!recv_all(cfd, jpeg.data(), len)) break;
-
-        // 4) JPEG 디코딩
-        cv::Mat img = cv::imdecode(jpeg, cv::IMREAD_COLOR);
-        if (img.empty()) continue;
-
-        // 5) 전처리 (BGR→RGB, 리사이즈, 0~1 정규화)
-        cv::Mat resized;
-        cv::resize(img, resized, {INPUT_WH, INPUT_WH});
-        cv::cvtColor(resized, resized, cv::COLOR_BGR2RGB);
-        resized.convertTo(resized, CV_32F, 1.0 / 255.0);
-
-        // CHW 텐서 만들기
-        std::array<int64_t, 4> shape{1, 3, INPUT_WH, INPUT_WH};
-        std::vector<float> blob(3 * INPUT_WH * INPUT_WH);
-        size_t idx = 0;
-        for (int c = 0; c < 3; ++c)
-            for (int y = 0; y < INPUT_WH; ++y)
-                for (int x = 0; x < INPUT_WH; ++x)
-                    blob[idx++] = resized.at<cv::Vec3f>(y, x)[c];
-
-        // 6) 추론
-        Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
-            allocator, blob.data(), blob.size(), shape.data(), shape.size());
-
-        auto output = session.Run(Ort::RunOptions{nullptr},
-                                  &input_name, &input_tensor, 1,
-                                  &output_name, 1);
-
-        const float* out = output[0].GetTensorData<float>();
-        const auto dims = output[0].GetTensorTypeAndShapeInfo().GetShape();
-        const int   num_det = dims[1];     // (1, N, …)
-        const int   dim_per = dims[2];     // 6 = x,y,w,h,conf,class
-
-        std::vector<Detection> detections;
-        for (int i = 0; i < num_det; ++i) {
-            const float conf = out[i * dim_per + 4];
-            if (conf < CONF_THR) continue;
-            Detection d;
-            const float cx = out[i * dim_per + 0] * img.cols;
-            const float cy = out[i * dim_per + 1] * img.rows;
-            const float w  = out[i * dim_per + 2] * img.cols;
-            const float h  = out[i * dim_per + 3] * img.rows;
-            d.x1  = cx - w / 2;  d.y1 = cy - h / 2;
-            d.x2  = cx + w / 2;  d.y2 = cy + h / 2;
-            d.conf = conf;
-            d.cls  = static_cast<int>(out[i * dim_per + 5]);
-            detections.push_back(d);
+        client_sock = accept(server_fd, (struct sockaddr*)&address, &addrlen);
+        if (client_sock < 0) {
+            perror("❌ 클라이언트 수락 실패");
+            continue;
         }
-        detections = nms(detections);
 
-        // 7) 좌표 문자열 작성 "x1,y1,x2,y2,cls,conf;..."
-        std::ostringstream oss;
-        for (auto& d : detections) {
-            oss << int(d.x1) << ',' << int(d.y1) << ','
-                << int(d.x2) << ',' << int(d.y2) << ','
-                << d.cls << ',' << d.conf << ';';
-        }
-        oss << '\n';
-        std::string msg = oss.str();
-        send(cfd, msg.data(), msg.size(), 0);          // 클라이언트 전송
-        std::cout << msg;                               // 서버 콘솔에도 출력
+        std::cout << "✅ 클라이언트 연결됨\n";
+        handle_client(client_sock);
+        close(client_sock);
     }
-    close(cfd); close(sfd);
+
+    delete session;
+    return 0;
 }

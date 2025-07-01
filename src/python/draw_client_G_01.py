@@ -9,7 +9,7 @@ SERVER_IP = '127.0.0.1'  # C++ 서버가 실행 중인 컴퓨터의 IP 주소
 SERVER_PORT = 9888
 # 비디오 소스 설정: 0 for webcam, 'path/to/video.mp4' for a file
 #VIDEO_SOURCE = 0 # 0번 카메라 또는 'test.mp4'와 같은 파일 경로
-VIDEO_SOURCE = '/Users/tory/Tory/02.Study/movies/test_movie_001.mp4'
+VIDEO_SOURCE = '/Users/tory/Tory/02.Study/movies/test_movie_007.mp4'
 
 def main():
     # ─── FPS 변수 ───
@@ -19,6 +19,8 @@ def main():
 
     # TCP 소켓 생성
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client_socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1) # 이 줄 추가
+
     try:
         # 서버에 연결 시도
         client_socket.connect((SERVER_IP, SERVER_PORT))
@@ -45,7 +47,7 @@ def main():
 
         # 1. 프레임을 JPEG 형식으로 인코딩 (압축)
         # JPEG 품질을 조절하여 전송량과 화질 사이의 균형을 맞출 수 있습니다. (기본값 95)
-        encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 90]
+        encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 60]
         result, encoded_frame = cv2.imencode('.jpg', frame, encode_param)
         if not result:
             print("WARNING: 프레임 인코딩에 실패했습니다.")
