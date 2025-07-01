@@ -20,6 +20,13 @@ const std::string MODEL_PATH = "/Users/tory/Tory/02.Study/01.1team/min_1st_proje
 const float CONFIDENCE_THRESHOLD = 0.15;        // 최소 신뢰도 기본 0.3
 const float NMS_THRESHOLD = 0.25;               // NMS 임계값 기본 0.25
 
+const std::vector<std::string> COCO80 = {
+    "person","bicycle","car","motorcycle","airplane","bus","train","truck","boat",
+    "traffic light","fire hydrant","stop sign","parking meter","bench",
+    "toothbrush",
+    "big vehicle","vehicle","bike","human","animal","obstacle", // 우리 프로젝트에서 추가한것.
+};
+
 /**
  * @brief ONNX 추론을 담당하는 헬퍼 클래스
  */

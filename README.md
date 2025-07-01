@@ -30,7 +30,21 @@ min_1st_project/
 # draw_server_G_01.cpp, draw_client_G_01.py
 # 영상 출력하고, 영상 보내고, 서버에서 추론 후 좌표 보내고, 클라이언트에서 바운딩박스 그려주는것까지 확인했음.
 
-# 25.07.01 -- 001
+# 25.07.01 -- 003
 # draw_server_async.cpp, draw_client_async.py 파일 추가함.
 # 비동기 처리/멀티스레딩과 파이프라이닝 추가해서 동작 확인함.
 # 속도 개선에 많은 도움을 예상했지만...... 미미한 효과만 있음. ㅠ.ㅠ
+
+# 25.07.01 -- 004
+# draw_server_async_01.cpp, draw_client_async_01.py, draq_config.json 파일 추가함.
+
+# draw_server_async_01.cpp는 컴파일 후 실행방법은 
+# ./draw_server_async_01.out 0.0.0.0 9888 best.onnx
+#                        바인딩 주소   포트 번호   모델경로
+
+# draq_config.json에는 서버 주소, 포트 번호, 비디오 소스가 들어있다.
+# draw_client_async_01.py를 바로 실행시키면 된다.
+
+# -- 003에 비해 개선된 속도는 많이 개선되었지만, 객체 검출에 문제가 있는것 같다.
+
+# draw_server_async_01.cpp 파일은 임시로 올려두었으며 차후 삭제 예정이다.

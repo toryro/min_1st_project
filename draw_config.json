@@ -1,0 +1,7 @@
+{
+  "client": {
+    "server_ip":    "127.0.0.1",
+    "server_port":  9888,
+    "video_source": "/Users/tory/Tory/02.Study/movies/test_movie_007.mp4"
+  }
+}
